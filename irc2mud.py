@@ -26,13 +26,18 @@ class MUDClientProtocol(asyncio.Protocol):
         lines = data.decode('ascii', 'replace').rstrip('\r\n').split('\r\n')
         if not (len(lines) == 1 and not lines[0].strip()):
             for line in lines:
+                action = False
                 name = "*"
                 message = line.replace('[0m', '\x02').replace('[1m', '\x02')
                 if len(line.split()) >= 3 and line.split(" ")[1] == "says,":
                     name = line.split(' ')[0]
                     message = line.split('"', 1)[1][:-1]
+                else:
+                    if len(line.split()) > 1 and line[0] in self.contents:
+                        name, message = line.split(' ', 1)
+                        action = True
                     
-                self.server.message(message, name=name)
+                self.server.message(message, name=name, action=action)
                 
                 if message.startswith('\x02'):
                     if self.handling_contents:
@@ -43,8 +48,8 @@ class MUDClientProtocol(asyncio.Protocol):
                     self.handling_contents = True
                     self.contents = []
                 elif message == 'Obvious exits:':
-                    if not handling_contents:
-                        contents = []
+                    if not self.handling_contents:
+                        self.contents = []
                     self.handling_contents = False
                     self.server.topic(self.last_bold)
                     self.server.names(self.contents)
@@ -152,7 +157,9 @@ class IRCServerClientProtocol(asyncio.Protocol):
         
         self.transport.write(packet.encode('utf-8'))
     
-    def message(self, message, name="*"):
+    def message(self, message, name="*", action=False):
+        if action:
+            message = "\x01ACTION "+message+"\x01"
         self._send("PRIVMSG", self.channel, ":"+message, source=name+"!*@*")
         
     def topic(self, message, name="*"):
