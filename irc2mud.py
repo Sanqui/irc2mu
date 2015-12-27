@@ -12,6 +12,10 @@ MUDPORT = int(argv[2])
 class MUDClientProtocol(asyncio.Protocol):
     def __init__(self):
         self.loop = loop
+        
+        self.last_bold = ""
+        self.handling_contents = False
+        self.contents = []
 
     def connection_made(self, transport):
         print("Connection made")
@@ -23,12 +27,32 @@ class MUDClientProtocol(asyncio.Protocol):
         if not (len(lines) == 1 and not lines[0].strip()):
             for line in lines:
                 name = "*"
-                message = line
+                message = line.replace('[0m', '\x02').replace('[1m', '\x02')
                 if len(line.split()) >= 3 and line.split(" ")[1] == "says,":
                     name = line.split(' ')[0]
                     message = line.split('"', 1)[1][:-1]
                     
                 self.server.message(message, name=name)
+                
+                if message.startswith('\x02'):
+                    if self.handling_contents:
+                        self.contents.append(message.strip('\x02'))
+                    else:
+                        self.last_bold = message
+                elif message == 'Contents:':
+                    self.handling_contents = True
+                    self.contents = []
+                elif message == 'Obvious exits:':
+                    if not handling_contents:
+                        contents = []
+                    self.handling_contents = False
+                    self.server.topic(self.last_bold)
+                    self.server.names(self.contents)
+                elif message.startswith("Use connect <name> <password>"):
+                    if self.server.muduser:
+                        self.send('connect {} {}'.format(self.server.muduser, self.server.mudpassword))
+                    
+                    
     
     def connection_lost(self, exc):
         print('MUDClient: The server closed the connection')
@@ -44,7 +68,13 @@ class IRCServerClientProtocol(asyncio.Protocol):
         print('Connection from {}'.format(peername))
         self.transport = transport
         
+        self.client = None
+        
         self.buffer = b""
+        
+        self.muduser = None
+        self.mudpassword = None
+        
         self.nick = None
         self.user = None
         self.fullname = None
@@ -76,7 +106,11 @@ class IRCServerClientProtocol(asyncio.Protocol):
         else:
             command = line
         command, *arguments = command.split()
-        if command == "NICK":
+        if command == "PASS":
+            self.muduser, self.mudpassword = arguments[0].split(':')
+            if self.client:
+                self.client.send('connect {} {}'.format(self.muduser, self.mudpassword))
+        elif command == "NICK":
             self.nick = arguments[0]
         elif command == "USER":
             self.user = arguments[0]
@@ -89,6 +123,7 @@ class IRCServerClientProtocol(asyncio.Protocol):
             self._send("324", self.channel, "+t")
             
             asyncio.Task(self.connect_client())
+            
         elif command == "PART":
             if arguments[0] == self.channel:
                 self._send("JOIN", self.channel, "*", source=self.nick+"!"+self.user+"@x")
@@ -119,6 +154,13 @@ class IRCServerClientProtocol(asyncio.Protocol):
     
     def message(self, message, name="*"):
         self._send("PRIVMSG", self.channel, ":"+message, source=name+"!*@*")
+        
+    def topic(self, message, name="*"):
+        self._send("TOPIC", self.channel, ":"+message, source=name+"!*@*")
+        
+    def names(self, users):
+        self._send("353", self.nick, '=', self.channel, ":"+" ".join(user.replace(' ', '\xa0') for user in users))
+        self._send("366", self.nick, self.channel, ":End of /NAMES list.")
     
     @asyncio.coroutine
     def connect_client(self):
