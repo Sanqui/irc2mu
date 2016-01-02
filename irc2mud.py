@@ -16,6 +16,7 @@ class MUDClientProtocol(asyncio.Protocol):
         self.last_bold = ""
         self.handling_contents = False
         self.contents = []
+        self.last_said = []
 
     def connection_made(self, transport):
         print("Connection made")
@@ -33,29 +34,37 @@ class MUDClientProtocol(asyncio.Protocol):
                     name = line.split(' ')[0]
                     message = line.split('"', 1)[1][:-1]
                 else:
-                    if len(line.split()) > 1 and line[0] in self.contents:
+                    if len(line.split()) > 1 and line.split()[0] in self.contents:
                         name, message = line.split(' ', 1)
                         action = True
-                    
-                self.server.message(message, name=name, action=action)
                 
-                if message.startswith('\x02'):
-                    if self.handling_contents:
-                        self.contents.append(message.strip('\x02'))
-                    else:
-                        self.last_bold = message
-                elif message == 'Contents:':
-                    self.handling_contents = True
-                    self.contents = []
-                elif message == 'Obvious exits:':
-                    if not self.handling_contents:
+                if line.startswith("You say, \""):
+                    for i, ls in reversed(list(enumerate(self.last_said))):
+                        if ls.endswith(line.split('"', 1)[1][:-1]):
+                            self.last_said.pop(i)
+                            message = None
+                            print("Not echoing own message: ", line)
+                
+                if message:
+                    self.server.message(message, name=name, action=action)
+                    
+                    if message.startswith('\x02'):
+                        if self.handling_contents:
+                            self.contents.append(message.strip('\x02'))
+                        else:
+                            self.last_bold = message
+                    elif message == 'Contents:':
+                        self.handling_contents = True
                         self.contents = []
-                    self.handling_contents = False
-                    self.server.topic(self.last_bold)
-                    self.server.names(self.contents)
-                elif message.startswith("Use connect <name> <password>"):
-                    if self.server.muduser:
-                        self.send('connect {} {}'.format(self.server.muduser, self.server.mudpassword))
+                    elif message == 'Obvious exits:':
+                        if not self.handling_contents:
+                            self.contents = []
+                        self.handling_contents = False
+                        self.server.topic(self.last_bold)
+                        self.server.names(self.contents)
+                    elif message.startswith("Use connect <name> <password>"):
+                        if self.server.muduser:
+                            self.send('connect {} {}'.format(self.server.muduser, self.server.mudpassword))
                     
                     
     
@@ -65,6 +74,8 @@ class MUDClientProtocol(asyncio.Protocol):
     
     def send(self, message):
         self.transport.write(message.encode('ascii')+b'\r\n')
+        self.last_said.append(message)
+        self.last_said = self.last_said[-10:]
 
 
 class IRCServerClientProtocol(asyncio.Protocol):
@@ -133,6 +144,8 @@ class IRCServerClientProtocol(asyncio.Protocol):
             if arguments[0] == self.channel:
                 self._send("JOIN", self.channel, "*", source=self.nick+"!"+self.user+"@x")
         elif command == "PRIVMSG":
+            if message.startswith("\x01ACTION "):
+                message = ":"+message.split(" ", 1)[1].rstrip('\x01')
             self.client.send(message)
         else:
             if self.nick and self.user:
