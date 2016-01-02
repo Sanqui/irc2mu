@@ -1,13 +1,13 @@
 What?
 =====
 
-irc2mud connects to a MU* (MUD, MUSH, MUCK etc.) and behaves like an IRC server, letting you connect to it and chat from 
+irc2mu connects to a MU* (MUD, MUSH, MUCK etc.) and behaves like an IRC server, letting you connect to it and chat from 
 the comfort of your favorite IRC client.  It's fine tuned for PennMUSH.  Without the extras, it's in essence a Telnet 
 client for IRC.
 
 Why?
 ====
-Because I recently got interested in MUDs, have been chatting in one, and thought it would be convenient to have it in my 
+Because I recently got interested in MUs, have been chatting in one, and thought it would be convenient to have it in my 
 IRC client.  Also, I want to learn Python asyncio.
 
 How?

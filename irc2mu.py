@@ -6,10 +6,10 @@ import asyncio
 BINDHOST = '127.0.0.1'
 BINDPORT = 6667
 
-MUDHOST = argv[1]
-MUDPORT = int(argv[2])
+MUHOST = argv[1]
+MUPORT = int(argv[2])
 
-class MUDClientProtocol(asyncio.Protocol):
+class MUClientProtocol(asyncio.Protocol):
     def __init__(self):
         self.loop = loop
         
@@ -63,13 +63,13 @@ class MUDClientProtocol(asyncio.Protocol):
                         self.server.topic(self.last_bold)
                         self.server.names(self.contents)
                     elif message.startswith("Use connect <name> <password>"):
-                        if self.server.muduser:
-                            self.send('connect {} {}'.format(self.server.muduser, self.server.mudpassword))
+                        if self.server.muuser:
+                            self.send('connect {} {}'.format(self.server.muuser, self.server.mupassword))
                     
                     
     
     def connection_lost(self, exc):
-        print('MUDClient: The server closed the connection')
+        print('MUClient: The server closed the connection')
         self.loop.stop()
     
     def send(self, message):
@@ -88,8 +88,8 @@ class IRCServerClientProtocol(asyncio.Protocol):
         
         self.buffer = b""
         
-        self.muduser = None
-        self.mudpassword = None
+        self.muuser = None
+        self.mupassword = None
         
         self.nick = None
         self.user = None
@@ -123,16 +123,16 @@ class IRCServerClientProtocol(asyncio.Protocol):
             command = line
         command, *arguments = command.split()
         if command == "PASS":
-            self.muduser, self.mudpassword = arguments[0].split(':')
+            self.muuser, self.mupassword = arguments[0].split(':')
             if self.client:
-                self.client.send('connect {} {}'.format(self.muduser, self.mudpassword))
+                self.client.send('connect {} {}'.format(self.muuser, self.mupassword))
         elif command == "NICK":
             self.nick = arguments[0]
         elif command == "USER":
             self.user = arguments[0]
             self.serverhost = arguments[2]
             self.fullname = message
-            self._send("001", self.nick, ":Welcome to irc2mud!")
+            self._send("001", self.nick, ":Welcome to irc2mu!")
             self._send("375", self.nick, ":MoTD goes here.")
             self._send("JOIN", self.channel, "*", source=self.nick+"!"+self.user+"@x")
             self._send("366", self.channel, ":End of /NAMES list")
@@ -185,7 +185,7 @@ class IRCServerClientProtocol(asyncio.Protocol):
     @asyncio.coroutine
     def connect_client(self):
         print("will connect client")
-        protocol, self.client = yield from loop.create_connection(MUDClientProtocol, MUDHOST, MUDPORT)
+        protocol, self.client = yield from loop.create_connection(MUClientProtocol, MUHOST, MUPORT)
         self.client.server = self
         print("connected client?")
 
