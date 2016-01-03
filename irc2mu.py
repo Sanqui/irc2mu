@@ -4,7 +4,7 @@ import asyncio
 #logging.basicConfig(level=logging.DEBUG)
 
 BINDHOST = '127.0.0.1'
-BINDPORT = 6667
+BINDPORT = 6668
 
 MUHOST = argv[1]
 MUPORT = int(argv[2])
@@ -27,9 +27,16 @@ class MUClientProtocol(asyncio.Protocol):
         lines = data.decode('ascii', 'replace').rstrip('\r\n').split('\r\n')
         if not (len(lines) == 1 and not lines[0].strip()):
             for line in lines:
+                channel = None
                 action = False
                 name = "*"
                 message = line.replace('[0m', '\x02').replace('[1m', '\x02')
+                
+                if message.startswith("<"):
+                    channel, message = message[1:].split(">", 1)
+                    channel = "#"+channel
+                    message = message.strip()
+                
                 if len(line.split()) >= 3 and line.split(" ")[1] == "says,":
                     name = line.split(' ')[0]
                     message = line.split('"', 1)[1][:-1]
@@ -46,17 +53,17 @@ class MUClientProtocol(asyncio.Protocol):
                             print("Not echoing own message: ", line)
                 
                 if message:
-                    self.server.message(message, name=name, action=action)
+                    self.server.message(message, name=name, action=action, channel=channel)
                     
                     if message.startswith('\x02'):
                         if self.handling_contents:
                             self.contents.append(message.strip('\x02'))
                         else:
                             self.last_bold = message
-                    elif message == 'Contents:':
+                    elif message in ('Contents:', 'Players here (+glance for short descriptions):'):
                         self.handling_contents = True
                         self.contents = []
-                    elif message == 'Obvious exits:':
+                    elif message in ('Obvious exits:', 'Streets here:'):
                         if not self.handling_contents:
                             self.contents = []
                         self.handling_contents = False
@@ -73,7 +80,7 @@ class MUClientProtocol(asyncio.Protocol):
         self.loop.stop()
     
     def send(self, message):
-        self.transport.write(message.encode('ascii')+b'\r\n')
+        self.transport.write(message.encode('utf-8')+b'\r\n')
         self.last_said.append(message)
         self.last_said = self.last_said[-10:]
 
@@ -96,7 +103,7 @@ class IRCServerClientProtocol(asyncio.Protocol):
         self.fullname = None
         self.serverhost = BINDHOST
         
-        self.channel = "#"
+        self.channels = []
         
 
     def data_received(self, data):
@@ -134,15 +141,13 @@ class IRCServerClientProtocol(asyncio.Protocol):
             self.fullname = message
             self._send("001", self.nick, ":Welcome to irc2mu!")
             self._send("375", self.nick, ":MoTD goes here.")
-            self._send("JOIN", self.channel, "*", source=self.nick+"!"+self.user+"@x")
-            self._send("366", self.channel, ":End of /NAMES list")
-            self._send("324", self.channel, "+t")
+            self.join("#")
             
             asyncio.Task(self.connect_client())
             
         elif command == "PART":
-            if arguments[0] == self.channel:
-                self._send("JOIN", self.channel, "*", source=self.nick+"!"+self.user+"@x")
+            if arguments[0] == "#":
+                self._send("JOIN", "#", "*", source=self.nick+"!"+self.user+"@x")
         elif command == "PRIVMSG":
             if message.startswith("\x01ACTION "):
                 message = ":"+message.split(" ", 1)[1].rstrip('\x01')
@@ -170,17 +175,27 @@ class IRCServerClientProtocol(asyncio.Protocol):
         
         self.transport.write(packet.encode('utf-8'))
     
-    def message(self, message, name="*", action=False):
+    def message(self, message, name="*", action=False, channel="#"):
+        if not channel:
+            channel = "#"
+        if channel not in self.channels:
+            self.join(channel)
         if action:
             message = "\x01ACTION "+message+"\x01"
-        self._send("PRIVMSG", self.channel, ":"+message, source=name+"!*@*")
+        self._send("PRIVMSG", channel, ":"+message, source=name+"!*@*")
         
     def topic(self, message, name="*"):
-        self._send("TOPIC", self.channel, ":"+message, source=name+"!*@*")
+        self._send("TOPIC", "#", ":"+message, source=name+"!*@*")
         
     def names(self, users):
-        self._send("353", self.nick, '=', self.channel, ":"+" ".join(user.replace(' ', '\xa0') for user in users))
-        self._send("366", self.nick, self.channel, ":End of /NAMES list.")
+        self._send("353", self.nick, '=', "#", ":"+" ".join(user.replace(' ', '\xa0') for user in users))
+        self._send("366", self.nick, "#", ":End of /NAMES list.")
+    
+    def join(self, channel):
+        self._send("JOIN", channel, "*", source=self.nick+"!"+self.user+"@x")
+        self._send("366", channel, ":End of /NAMES list")
+        self._send("324", channel, "+t")
+        self.channels.append(channel)
     
     @asyncio.coroutine
     def connect_client(self):
